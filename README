@@ -1,0 +1,93 @@
+cl-fov - Field Of View (FOV) utility routines for Common LISP
+
+
+INSTALLATION
+
+install for ASDF
+
+    mkdir -p "$HOME"/.local/share/common-lisp/source
+    cd "$HOME"/.local/share/common-lisp/source
+    git clone https://github.com/thrig/cl-fov
+
+or for Quicklisp
+
+    cd "$HOME"/quicklisp/local-projects
+    git clone https://github.com/thrig/cl-fov
+
+or the directory could be checked out somewhere else and then symlinked
+into the necessary directory
+
+
+SYNOPSIS
+
+see also the Game::RaycastFOV perl module which has better documentation
+and much the same code
+
+    ;(require :asdf)
+    ;(asdf:load-system :cl-fov)
+    #-quicklisp
+    (let ((quicklisp-init
+           (merge-pathnames "quicklisp/setup.lisp" (user-homedir-pathname))))
+      (when (probe-file quicklisp-init) (load quicklisp-init)))
+    (ql:quickload :cl-fov :silent t)
+
+    (defpackage #:synopsis (:use #:cl #:cl-fov))
+    (in-package #:synopsis)
+
+    ; must return t otherwise BLINE callback aborts the line walk
+    (defun ppos (x y) (format t "~a,~a " x y) t)
+
+    ; circle points of radius three by pi/4 radian turns
+    (circle-swing #'ppos 0 0 3 (/ pi 4))
+    (fresh-line)
+
+    ; as above but with a BLINE line walk to each of the circle points.
+    ; the ppos call would typically handle displaying the point, returning
+    ; nil if the visibility at that point is blocked, etc
+    (raycast #'circle-swing #'ppos 0 0 3 (/ pi 4))
+
+a more complicated SHADOWCAST example; this routine is probably too
+generic for use in a game where the size of the level map is known, etc
+
+    (block nil (setq *random-state* (make-random-state t)) (return))
+    (defmacro define-constant (name value &optional doc)
+      `(defconstant ,name
+         (if (boundp ',name) (symbol-value ',name) ,value)
+         ,@(when doc (list doc))))
+    (define-constant +clear-screen+ #.(format nil "~C[1;1H~C[2J" #\Esc #\Esc))
+    (defmacro at (col row) `(format t "~C[~d;~dH" #\Esc ,row ,col))
+
+    ; map with randomized walls
+    (defparameter *map* (make-array '(23 78) :element-type 'character))
+    (dotimes (r 23)
+      (dotimes (c 78)
+        (setf (aref *map* r c) (if (< (random 1.0) 0.5) #\# #\.))))
+
+    (princ +clear-screen+)
+    (let* ((x 60) (y 12) (radius 7) (rsq (* radius radius))
+           (visited (make-hash-table :test 'equal)))
+      (setf (aref *map* y x) #\@)
+      (shadowcast x y radius
+        ; whether the point point is blocked
+        (lambda (curx cury)
+          (if (array-in-bounds-p *map* cury curx)
+            (eq (aref *map* cury curx) #\#)
+            t))
+        ; how to "light up" a cell
+        (lambda (curx cury dx dy)
+          (declare (ignore dx dy))
+          (when (array-in-bounds-p *map* cury curx)
+            (let ((where (cons curx cury)))
+              (unless (gethash where visited)
+                (at curx cury)
+                (princ (aref *map* cury curx))
+                (setf (gethash where visited) t)))))
+        ; radius check
+        (lambda (dx dy)
+          (< (+ (* dx dx) (* dy dy)) rsq))))
+    (at 0 23)
+
+
+CAVEATS
+
+need to figure out a LISP testing framework one of these years
